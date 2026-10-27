@@ -31,32 +31,38 @@ with st.sidebar:
     st.header("🔑 密钥设置")
     if SECRET_KEY:
         st.success("已使用云端配置的密钥")
-    else:
-        st.caption(
-            "粘贴你的智谱 API Key（形如 `xxxx.xxxx`，中间有个点）。"
-            " 只存在你这台设备的这次会话里，不上传服务器。"
-        )
-        typed = st.text_input(
-            "智谱 API Key",
-            value=st.session_state.api_key,
-            type="password",
-            placeholder="粘贴以 sk- 或 32位id. 开头的完整 Key",
-        )
-        if typed.strip() != st.session_state.api_key:
-            st.session_state.api_key = typed.strip()
+    elif st.session_state.api_key:
+        st.success("✅ 密钥已就绪")
+        if st.button("清除密钥"):
+            st.session_state.api_key = ""
             st.session_state.pop("client", None)
-        if st.session_state.api_key:
-            st.success("✅ 密钥已就绪")
-        else:
-            st.warning("还没有 Key，右边不能对话")
-        st.link_button("去 bigmodel.cn 取 Key", "https://bigmodel.cn/usercenter/proj-mgmt/apikeys")
-        st.caption("提示：浏览器刷新后需重填；存到云端 Secrets 可永久免填。")
+            st.rerun()
+    else:
+        st.warning("还没有 Key")
+    st.link_button("去 bigmodel.cn 取 Key", "https://bigmodel.cn/usercenter/proj-mgmt/apikeys")
+    st.caption("Key 只存在你这台设备的这次会话里，不上传服务器。")
 
 API_KEY = (st.session_state.get("api_key") or "").strip()
 
 if not API_KEY:
     st.title("🦞 学习搭子 · AI 引导刷题")
-    st.info("👈 **先在左侧边栏粘贴智谱 API Key**，然后就能粘题目开始刷题了。")
+    st.markdown("**第一次使用，请先粘贴你的智谱 API Key**（只在你这台设备的内存里，不上传服务器）")
+    k = st.text_input(
+        "智谱 API Key",
+        type="password",
+        placeholder="完整的一串，中间有个点，如 f62eecf5...BGmv",
+        key="main_key_input",
+    )
+    if k and k.strip():
+        st.session_state.api_key = k.strip()
+        st.session_state.pop("client", None)
+        st.rerun()
+    with st.expander("📖 怎么拿 Key？（点开看 3 步）", expanded=False):
+        st.markdown(
+            "1. 打开 https://bigmodel.cn/usercenter/proj-mgmt/apikeys\n"
+            "2. 点「新建 API Key」\n"
+            "3. 点那行的「复制」，**复制完整一整串**（中间有个点，别只复制前半截）"
+        )
     st.stop()
 
 MODEL = "glm-4-flash"
@@ -98,6 +104,20 @@ FALLBACK_REPLY = (
 
 def is_leak(text: str) -> bool:
     return bool(LEAK_RE.search(text or ""))
+
+
+def friendly_error(e: Exception) -> str:
+    s = str(e)
+    low = s.lower()
+    if "401" in s or "令牌" in s or "验证不正确" in s or "authentication" in low or "invalid api key" in low or "unauthorized" in low:
+        return "API Key 不对或没激活。请重新粘贴**完整的一串**（中间有个点，别只复制前半截），或去 bigmodel.cn 确认 Key 有效。"
+    if "429" in s or "rate limit" in low:
+        return "调用太频繁了，歇 10 秒再发。"
+    if "并发" in s or "concurrent" in low:
+        return "同时请求太多，等几秒再试。"
+    if "timeout" in low or "timed out" in low:
+        return "网络超时了，再发一次试试。"
+    return s[:220]
 
 
 def guarded_reply(client: "ZhipuAI", history: list) -> str:
@@ -160,11 +180,16 @@ with left:
             st.session_state.question = q.strip()
             if not st.session_state.messages:
                 with st.spinner("搭子热身中…"):
-                    reply = guarded_reply(
-                        client,
-                        base_context()
-                        + [{"role": "user", "content": "题目我发你了，开始引导我。"}],
-                    )
+                    try:
+                        reply = guarded_reply(
+                            client,
+                            base_context()
+                            + [{"role": "user", "content": "题目我发你了，开始引导我。"}],
+                        )
+                    except Exception as e:
+                        st.session_state.question = ""
+                        st.error("⚠️ " + friendly_error(e))
+                        st.stop()
                 st.session_state.messages.append({"role": "assistant", "content": reply})
             st.rerun()
 
@@ -203,7 +228,7 @@ with right:
                                 base_context() + st.session_state.messages,
                             )
                         except Exception as e:
-                            reply = f"⚠️ 调用出错：`{e}`\n\n检查网络或 API Key 后重试。"
+                            reply = "⚠️ " + friendly_error(e)
                     st.markdown(reply)
             st.session_state.messages.append({"role": "assistant", "content": reply})
             st.rerun()
