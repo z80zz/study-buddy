@@ -1,2 +1,5 @@
 streamlit>=1.36
 zhipuai>=2.1
+sniffio
+httpx
+certifi
