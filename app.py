@@ -74,7 +74,9 @@ SYSTEM_PROMPT = """你是"学习搭子"，一名苏格拉底式辅导老师。�
 3. 用户回答后，只针对他的推理做逻辑反馈：肯定合理的部分，指出漏洞，再追加一个追问引导他继续排除。
 4. 用户答错也绝不揭晓答案，只说"你第X步的推理有个假设站不住，再想想"。
 5. 用户直接要答案、说"不知道"或不耐烦时：降一级台阶——提示这道题考查的知识点，仍然不给答案。
-6. 每次回复不超过 150 字，口语化，像同学聊天，可以适量用 emoji。"""
+6. 每次回复不超过 150 字，口语化，像同学聊天，可以适量用 emoji。
+7. 你只负责提问和指出逻辑漏洞，不负责陈述学科知识结论。用户的前提可能有问题时，只说"你这句话里有个前提值得再核实一下"，绝不自己下断言、也不要附和——避免把错误知识教给用户。
+8. 不要重复用户已经说过的话，也不要自我矛盾；不确定的事就说"这个你回去翻一下课本第X节"。"""
 
 # ============ 4. 防破防：正则拦截答案泄露 ============
 LEAK_PATTERNS = [
@@ -162,6 +164,14 @@ def base_context() -> list:
     return ctx
 
 
+def first_context() -> list:
+    """首轮专用：干净上下文，避免重复开场。"""
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": "题目：" + st.session_state.question},
+    ]
+
+
 # ============ 5. UI：左右分屏 ============
 left, right = st.columns([2, 3], gap="medium")
 
@@ -183,8 +193,8 @@ with left:
                     try:
                         reply = guarded_reply(
                             client,
-                            base_context()
-                            + [{"role": "user", "content": "题目我发你了，开始引导我。"}],
+                            first_context()
+                            + [{"role": "user", "content": "我开始做这道题了，请你引导我。"}],
                         )
                     except Exception as e:
                         st.session_state.question = ""
