@@ -13,15 +13,50 @@ st.set_page_config(
     layout="wide",
 )
 
-# ============ 1. 安全：密钥从 secrets 读取 ============
-try:
-    API_KEY = st.secrets["ZHIPU_API_KEY"]
-except Exception:
-    st.error(
-        "未检测到密钥。本地运行：在项目目录 `.streamlit/secrets.toml` 里写 "
-        '`ZHIPU_API_KEY = "sk-你的真实KEY"`；'
-        "Streamlit Cloud：Advanced settings → Secrets 里填同样的内容。"
-    )
+# ============ 1. 安全：密钥优先读 secrets，没有就在侧边栏手动填 ============
+def _secret_key() -> str:
+    try:
+        v = st.secrets["ZHIPU_API_KEY"]
+        return str(v or "").strip()
+    except Exception:
+        return ""
+
+
+SECRET_KEY = _secret_key()
+
+if "api_key" not in st.session_state:
+    st.session_state.api_key = SECRET_KEY
+
+with st.sidebar:
+    st.header("🔑 密钥设置")
+    if SECRET_KEY:
+        st.success("已使用云端配置的密钥")
+    else:
+        st.caption(
+            "粘贴你的智谱 API Key（形如 `xxxx.xxxx`，中间有个点）。"
+            " 只存在你这台设备的这次会话里，不上传服务器。"
+        )
+        typed = st.text_input(
+            "智谱 API Key",
+            value=st.session_state.api_key,
+            type="password",
+            placeholder="粘贴以 sk- 或 32位id. 开头的完整 Key",
+        )
+        if typed.strip() != st.session_state.api_key:
+            st.session_state.api_key = typed.strip()
+            st.session_state.pop("client", None)
+        if st.session_state.api_key:
+            st.success("✅ 密钥已就绪")
+        else:
+            st.warning("还没有 Key，右边不能对话")
+        st.link_button("去 bigmodel.cn 取 Key", "https://bigmodel.cn/usercenter/proj-mgmt/apikeys")
+        st.caption("提示：浏览器刷新后需重填；存到云端 Secrets 可永久免填。")
+
+API_KEY = (st.session_state.get("api_key") or "").strip()
+
+if not API_KEY:
+    st.title("🦞 学习搭子 · AI 引导刷题")
+    st.info("👈 **先在左侧边栏粘贴智谱 API Key**，然后就能粘题目开始刷题了。")
     st.stop()
 
 MODEL = "glm-4-flash"
@@ -90,8 +125,9 @@ if "messages" not in st.session_state:
     st.session_state.messages = []          # [{"role","content"}]
 if "question" not in st.session_state:
     st.session_state.question = ""          # 已锁定的题目
-if "client" not in st.session_state:
+if "client" not in st.session_state or st.session_state.get("client_key") != API_KEY:
     st.session_state.client = ZhipuAI(api_key=API_KEY)
+    st.session_state.client_key = API_KEY
 
 client = st.session_state.client
 
